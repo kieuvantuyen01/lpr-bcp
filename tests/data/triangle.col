@@ -1,0 +1,5 @@
+c Three-vertex weighted triangle for smoke testing
+p edge 3 3
+e 1 2 2
+e 1 3 2
+e 2 3 2

@@ -1,0 +1,5 @@
+/build/
+/build-*/
+*.runs.csv
+*.solutions.txt
+.DS_Store

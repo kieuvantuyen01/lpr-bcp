@@ -1,13 +1,18 @@
-// BCP.cpp : ¶¨Òå¿ØÖÆÌ¨Ó¦ÓÃ³ÌĞòµÄÈë¿Úµã¡£
+// BCP.cpp : å®šä¹‰æ§åˆ¶å°åº”ç”¨ç¨‹åºçš„å…¥å£ç‚¹ã€‚
 //#pragma once
-#define WIN32_LEAN_AND_MEAN		// ´Ó Windows Í·ÖĞÅÅ³ı¼«ÉÙÊ¹ÓÃµÄ×ÊÁÏ
+#define WIN32_LEAN_AND_MEAN		// ä» Windows å¤´ä¸­æ’é™¤æå°‘ä½¿ç”¨çš„èµ„æ–™
 #include <stdio.h>
 //#include <tchar.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <cerrno>
+#include <chrono>
+#include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <limits>
 #include <string.h>
 #include <time.h>
 #include <ctime>
@@ -42,8 +47,11 @@ typedef struct PairSet{
 
 Adjacent * *A_Matrix ;         
 Adjacent *p1, *q1; 
-char * File_Name;
-char Output_File_Name[30];
+std::string File_Name;
+std::string Output_File_Name;
+std::string Solution_File_Name;
+int Current_Run;
+unsigned int Current_Seed;
 int N, K, G_K;  // node number and color number
 int f, f_best, fp;
 double total_time, starting_time; 
@@ -84,18 +92,18 @@ void inputing()
 {
      int i, x, y, x1, x2,d,v,vv;
 	 ifstream FIC;
-     FIC.open(File_Name);
+     FIC.open(File_Name.c_str());
      if ( FIC.fail() )
      {
            cout << "### Erreur open, File_Name " << File_Name << endl;
-           exit(0);
+           exit(2);
      }
      char StrReading[100];
      FIC >> StrReading;
      if ( FIC.eof() )
      {
            cout << "### Error open, File_Name " << File_Name << endl;
-           exit(0);
+           exit(2);
      }
      //int nb_vtx=0 ;
      int nb_edg=-1, max_edg=0;
@@ -169,7 +177,7 @@ void inputing()
                  {
                        cout << "### Error of node : x1="
                             << x1 << ", x2=" << x2 << endl;
-                       exit(0);
+                       exit(2);
                  }
 				 if(x1!=x2)
 				 {
@@ -197,11 +205,16 @@ void inputing()
                  p1->next = q1;
            }
 		   }
-          if ( strcmp(StrReading, "n")==0 )
-		  {
-              FIC >> v>>vv;
-			  V[v]=vv;
-          }
+	          if ( strcmp(StrReading, "n")==0 )
+			  {
+	              FIC >> v>>vv;
+				  if (v < 1 || v > N)
+                  {
+                      cerr << "### Error of node weight index: " << v << endl;
+                      exit(2);
+                  }
+				  V[v-1]=vv;
+	          }
 
            FIC >> StrReading;
      }
@@ -213,58 +226,44 @@ void inputing()
      {
            cout << "### Error de lecture du graphe, nbre aretes : annonce="
                  << nb_edg << ", lu=" << max_edg  << endl;
-           exit(0);
+           exit(2);
      }
    
      FIC.close();
 }
 
-void WriteDate(int *C,char *filename, int K,int f)
- { 
-	int i;
-	FILE *fp; 
-	char buff[80];
-    sprintf(buff,"%s ---- %d.txt",filename, K);
-    fp=fopen(buff,"a+");
-    fprintf(fp,"\n K=%d     f=%d\n ",K,f);
-	for(i=0;i<N;i++)
-    fprintf(fp,"%d ",C[i]);	
-	fclose(fp);
- }//end writedate function
-
-void WriteDate1(float *C,char *filename,int q)
- { 
-	int i;
-	FILE *fp; 
-	char buff[80];
-    sprintf(buff,"%s - %lf - %d.txt",filename, gema, alpha);
-    fp=fopen(buff,"a+");
-    fprintf(fp,"%d   %d \n", q, alpha);
-	for(i=0;i<3000;i++)
-
-    fprintf(fp,"%d      %lf \n", i, 1.0*C[i]/times);	
-	fclose(fp); 
- }//end writedate function
-void WriteDate2(float *C,char *filename,int q)
- { 
-	int i;
-	FILE *fp; 
-	char buff[80];
-    sprintf(buff,"%s -- %d.txt",filename, alpha);
-    fp=fopen(buff,"a+");
-    fprintf(fp,"%d   %d \n", q, alpha);
-	for(i=0;i<3000;i++)
-    fprintf(fp,"%d     %lf \n", i, 1.0*C[i]/times);	
-	fclose(fp); 
- }//end writedate function
-void Output_Results(int succ, double total_time)
+bool Valid_Coloring(const int *C)
 {
-    FILE *fp ;
-    fp = fopen(Output_File_Name, "a+"); 
-    fprintf(fp," K=%d   number_succ= %d  total_time=%lf   average_time=%lf   pp  \n", K, succ, total_time, total_time/succ);
-    fclose(fp) ;
-    return ;
+    for (int i = 0; i < N; ++i)
+        if (C[i] < 0 || C[i] >= K)
+            return false;
+
+    for (int i = 0; i < N; ++i)
+        for (int j = i + 1; j < N; ++j)
+            if (Edge[i][j] != 0 && abs(C[i] - C[j]) < D[i][j])
+                return false;
+
+    return true;
 }
+
+void WriteDate(int *C, const std::string &, int K, int f)
+ { 
+	if (!Valid_Coloring(C))
+    {
+        cerr << "Internal error: refusing to write an invalid coloring" << endl;
+        exit(3);
+    }
+	ofstream output(Solution_File_Name.c_str(), ios::app);
+    if (!output)
+    {
+        cerr << "Cannot open solution file: " << Solution_File_Name << endl;
+        exit(2);
+    }
+    output << "run=" << Current_Run << " seed=" << Current_Seed
+           << " k=" << K << " f=" << f << '\n';
+	for(int i=0;i<N;i++)
+        output << C[i] << (i + 1 == N ? '\n' : ' ');
+ }//end writedate function
 /***************************************************************************/
 /************* 3. Assign and relax the memery needed ***********************/
 /***************************************************************************/
@@ -296,11 +295,46 @@ void DeleteMemery(POP_Class pop[number_pop],POP_Class *solution_best, POP_Class 
 	   delete [] pop[i].p; 
 	delete [] (*solution_best).p; 
 	delete [] (*off_spring).p ;  
-    for(i=0; i<number_pop; i++) delete [] Pair_Set[i]; 
+    for(i=0; i<number_pop; i++) delete [] Pair_Set[i];
+	delete [] Pair_Set;
 	delete [] pair_s; 
 	delete [] value_best;
 	delete [] value_ave; 
-	delete [] t1; 
+	delete [] t1;
+
+    for (i = 0; i < N; ++i)
+    {
+        delete [] Edge[i];
+        delete [] D[i];
+        delete [] P[i];
+        delete [] Delta_Matrix[i];
+        delete [] Delta_Matrix1[i];
+        delete [] Delta_MatrixP[i];
+        delete [] TabuTenure[i];
+        delete [] Freq[i];
+
+        Adjacent *node = A_Matrix[i];
+        while (node != NULL)
+        {
+            Adjacent *next = node->next;
+            delete node;
+            node = next;
+        }
+    }
+    delete [] Edge;
+    delete [] D;
+    delete [] P;
+    delete [] Delta_Matrix;
+    delete [] Delta_Matrix1;
+    delete [] Delta_MatrixP;
+    delete [] TabuTenure;
+    delete [] Freq;
+    delete [] A_Matrix;
+    delete [] Color;
+    delete [] Best_Color;
+    delete [] Best_Color_so_far;
+    delete [] V;
+	delete [] Neibor_number;
 }
 
 /***************************************************************************/
@@ -385,7 +419,6 @@ int One_Move_Tabu_Search(int Color_into[], int *value)
      int tabu_best_delta, best_delta, delt ;
      int old_color ;
     int select ;
-    int num ;
 	  	
     int t=0,p=0;
     const int p_max = 15; 
@@ -405,6 +438,8 @@ int One_Move_Tabu_Search(int Color_into[], int *value)
 	 
     Build_Delta_Matrix( );
     f_best = f ;
+    for (i = 0; i < N; ++i)
+        Best_Color[i] = Color[i];
     if(f==0) return f;
     // printf("\n\n");
     // cout << endl << "One_Move :       iter       f       f_best      time " << endl;
@@ -413,7 +448,6 @@ int One_Move_Tabu_Search(int Color_into[], int *value)
      iter = 0 ; 
      while( non_improve < alpha)
         {
-          num = 0 ;
           tabu_best_delta = 9999999 ; 
           best_delta = 9999999 ;
           num_tabu_best = 0 ; 
@@ -424,7 +458,6 @@ int One_Move_Tabu_Search(int Color_into[], int *value)
                 for( v = 0 ; v < K ; v++ )
                   if( v != Color[ x ] )
                     {
-                      num ++ ;
                       delt = Delta_Matrix[ x ][ v ] - Delta_Matrix[ x ][ Color[ x ] ];
                       if( TabuTenure[ x ][ v ] <= iter ) // if this is not tabued 
                         {
@@ -460,6 +493,8 @@ int One_Move_Tabu_Search(int Color_into[], int *value)
                            }
                      }
                  }        
+                 if (num_best == 0 && num_tabu_best == 0)
+                     break;
                  //choose the tabu best move if the tab aspiration criterion is satisfied
                  if( ( num_tabu_best > 0 && tabu_best_delta < best_delta && ( f + tabu_best_delta < f_best ) ) || num_best == 0 )  // aspiration criterion 
                    {
@@ -634,7 +669,6 @@ int One_Move_Tabu_Search_Penalty(int Color_into[], int *value)
      int tabu_best_delta, best_delta, delt , delt1, delt2;
      int old_color ;
      int select ;
-     int num ;
 	 
 	int t=0,p=0;
     const int p_max = 15; 
@@ -655,6 +689,8 @@ int One_Move_Tabu_Search_Penalty(int Color_into[], int *value)
      Build_Delta_Matrix_P( );
      f = f + fp;
      f_best = f;
+     for (i = 0; i < N; ++i)
+         Best_Color[i] = Color[i];
      // printf("\n");
      // cout << endl << "One_Move :       iter       f       f_best      time " << endl;
      //  cout << "---------------------------------------------------" << endl; 
@@ -662,7 +698,6 @@ int One_Move_Tabu_Search_Penalty(int Color_into[], int *value)
      iter = 0 ; 
      while( non_improve < alpha0)
         {
-          num = 0 ;
           tabu_best_delta = 9999999 ; 
           best_delta = 9999999 ;
           num_tabu_best = 0 ; 
@@ -673,7 +708,6 @@ int One_Move_Tabu_Search_Penalty(int Color_into[], int *value)
                 for( v = 0 ; v < K ; v++ )
                   if( v != Color[ x ] )
                     {
-                      num ++ ;
                       delt1 = Delta_Matrix[ x ][ v ] - Delta_Matrix[ x ][ Color[ x ] ];
                       delt2 = Delta_MatrixP[ x ][ v ] - Delta_MatrixP[ x ][ Color[ x ] ];
                       delt = delt1 + delt2;
@@ -711,6 +745,8 @@ int One_Move_Tabu_Search_Penalty(int Color_into[], int *value)
                            }
                      }
                  }        
+                 if (num_best == 0 && num_tabu_best == 0)
+                     break;
                  //choose the tabu best move if the tab aspiration criterion is satisfied
                  if( ( num_tabu_best > 0 && tabu_best_delta < best_delta && ( f + tabu_best_delta < f_best ) ) || num_best == 0 )  // aspiration criterion 
                    {
@@ -782,7 +818,7 @@ int One_Move_Tabu_Search_Penalty(int Color_into[], int *value)
 /***************************************************************************/
 /************************** 5. Updating penalty function *******************/
 /***************************************************************************/
-int updatingP(int C[])
+void updatingP(int C[])
 {
     int i,j;
     int p_max = 0;
@@ -873,7 +909,6 @@ void Path_Relinking1(int *x,int *y, int *off_spring)
 	int k=0;
 	int r=0;
 	int delta=0;
-	int min_delta=99999999;
 	NC = new int [N+1];
 	for(i=0;i<N;i++) NC[i]=0; 
 	PV = new int [N+1];
@@ -922,7 +957,6 @@ void Path_Relinking1(int *x,int *y, int *off_spring)
 }
 void Path_Relinking2(int *x,int *y, int *off_spring)
 {
-	
 	int f_min = 9999999;
 	int i,j;
 	int *NC;
@@ -932,7 +966,6 @@ void Path_Relinking2(int *x,int *y, int *off_spring)
 	int k=0;
 	int r=0;
 	int delta=0;
-	int min_delta=99999999;
 	NC = new int [N+1];
 	for(j=0;j<N;j++) NC[j]=0; 
 	NC1 = new int [N+1];
@@ -981,7 +1014,6 @@ void Path_Relinking2(int *x,int *y, int *off_spring)
 void Mixed_Path_Relinking(int *x,int *y, int *off_spring)
 {
 	
-	int f_min = 9999999;
 	int count1 = 0, count2 = 0; 
 	int i;
 	int j; 
@@ -991,7 +1023,7 @@ void Mixed_Path_Relinking(int *x,int *y, int *off_spring)
 	int *FI;
 	int *FI1;
 	int k=0;
-	int r=0;int r1=0;
+	int r=0;
 	int delta=0;
 	int min_delta=99999999;
 	NC = new int [N+1];
@@ -1236,7 +1268,6 @@ int pop_updating(POP_Class pop[number_pop],POP_Class *off_spring,int *position)
    int f_max = -999999; 
    int f_min = 9999999; 
    int k;
-   int flag =0; 
    int count;
    int count_min = 999999;
    
@@ -1271,7 +1302,7 @@ int pop_updating2(POP_Class pop[number_pop],POP_Class *off_spring,int *position)
 	int i,j;
 	int f_max = -99999; 
 	int f_min = 99999;
-	int k_max,k_min;
+	int k_max;
 	int k_closest;
 	int count;
 	int similarity=99999;
@@ -1279,7 +1310,7 @@ int pop_updating2(POP_Class pop[number_pop],POP_Class *off_spring,int *position)
     for(i=0;i<number_pop;i++)
      {
        if(pop[i].value > f_max) { k_max = i; f_max = pop[i].value; } 
-       if(pop[i].value < f_min) { k_min = i; f_min = pop[i].value; }            
+       if(pop[i].value < f_min) { f_min = pop[i].value; }
      } 
 	if((*off_spring).value > f_max) return 0; // don't need to update 
 	
@@ -1365,7 +1396,7 @@ void updating_PairSet_pop(int position)
 	 int flag = 0; 
 	 int IterationNumber = 0; 
 	 int p; 
-	 int i,j;
+	 int j;
 	 int position;
 	
      for(x=0;x<N;x++)
@@ -1453,45 +1484,139 @@ void updating_PairSet_pop(int position)
 /***************************************************************************/ 
 int  main(int argc, char **argv)
 {
-     int  seed ; 	
-	 int  i;
-	 int  succ=0; 
-	 int  len;
-	 double Start, End; 
-	 int ret; 
-	 double total_time1; 
-	 seed = time(NULL) % 1000000 ;
-     srand( seed );
-     File_Name = argv[1]; 
-     K = atoi(argv[2]); 
-    times=atoi(argv[3]); 
-	// File_Name = "BCP100a.col";
-    // K = 427; 
-    // times = 10;
+    if (argc < 4 || argc > 6)
+    {
+        cerr << "Usage: " << argv[0]
+             << " INSTANCE K RUNS [BASE_SEED] [RUN_CSV]" << endl;
+        return 2;
+    }
 
-     len = strlen(File_Name);
-     strcpy(Output_File_Name, File_Name) ;
-     Output_File_Name[len]='.';
-     Output_File_Name[len+1]='t';
-     Output_File_Name[len+2]='x';
-     Output_File_Name[len+3]='t';
-     Output_File_Name[len+4]='\0';
-     
-     inputing();
-     Assign_Memery(pop,&solution_best,&off_spring);  
-     ParameterSetting(); 
-     // Starting computing 
-     total_time1 = 0.0;
-	 for(i=0; i< times; i++) 
-     { 
-       Start = clock();
-       ret = PR_Algo();
-       End = clock(); 
-       if(ret==1) { total_time1 += ((End - Start)/CLOCKS_PER_SEC); succ++; }
-     }
-     // Computing is finished , output the results: 
-     Output_Results(succ,total_time1); 
-     
-     DeleteMemery(pop,&solution_best,&off_spring); 
-     return 0;
+    char *end = NULL;
+    errno = 0;
+    long parsed_k = strtol(argv[2], &end, 10);
+    if (errno != 0 || *argv[2] == '\0' || *end != '\0' ||
+        parsed_k <= 0 || parsed_k > numeric_limits<int>::max())
+    {
+        cerr << "K must be a positive integer: " << argv[2] << endl;
+        return 2;
+    }
+
+    errno = 0;
+    long parsed_runs = strtol(argv[3], &end, 10);
+    if (errno != 0 || *argv[3] == '\0' || *end != '\0' ||
+        parsed_runs <= 0 || parsed_runs > numeric_limits<int>::max())
+    {
+        cerr << "RUNS must be a positive integer: " << argv[3] << endl;
+        return 2;
+    }
+
+    unsigned long parsed_seed = static_cast<unsigned long>(time(NULL));
+    if (argc >= 5)
+    {
+        errno = 0;
+        parsed_seed = strtoul(argv[4], &end, 10);
+        if (errno != 0 || *argv[4] == '\0' || *end != '\0' ||
+            parsed_seed > numeric_limits<unsigned int>::max())
+        {
+            cerr << "BASE_SEED must be an unsigned integer: " << argv[4] << endl;
+            return 2;
+        }
+    }
+
+    File_Name = argv[1];
+    K = static_cast<int>(parsed_k);
+    times = static_cast<int>(parsed_runs);
+    const unsigned int base_seed = static_cast<unsigned int>(parsed_seed);
+
+    if (argc >= 6)
+        Output_File_Name = argv[5];
+    else
+    {
+        ostringstream name;
+        name << filesystem::path(File_Name).filename().string()
+             << "-k" << K << "-seed" << base_seed << ".runs.csv";
+        Output_File_Name = name.str();
+    }
+    Solution_File_Name = Output_File_Name + ".solutions.txt";
+
+    ofstream run_output(Output_File_Name.c_str(), ios::trunc);
+    if (!run_output)
+    {
+        cerr << "Cannot open run CSV: " << Output_File_Name << endl;
+        return 2;
+    }
+    run_output << "run,seed,success,cpu_seconds,wall_seconds\n";
+    ofstream solution_output(Solution_File_Name.c_str(), ios::trunc);
+    if (!solution_output)
+    {
+        cerr << "Cannot open solution file: " << Solution_File_Name << endl;
+        return 2;
+    }
+    solution_output.close();
+
+    srand(base_seed);
+    inputing();
+    Assign_Memery(pop,&solution_best,&off_spring);
+    ParameterSetting();
+
+    int succ = 0;
+    double successful_cpu_time = 0.0;
+    const chrono::steady_clock::time_point all_wall_start = chrono::steady_clock::now();
+
+    for (int i = 0; i < times; ++i)
+    {
+        Current_Run = i + 1;
+        Current_Seed = base_seed + static_cast<unsigned int>(i);
+        srand(Current_Seed);
+
+        const clock_t cpu_start = clock();
+        const chrono::steady_clock::time_point wall_start = chrono::steady_clock::now();
+        const int ret = PR_Algo();
+        const chrono::steady_clock::time_point wall_end = chrono::steady_clock::now();
+        const clock_t cpu_end = clock();
+
+        const double cpu_seconds = static_cast<double>(cpu_end - cpu_start) / CLOCKS_PER_SEC;
+        const double wall_seconds = chrono::duration<double>(wall_end - wall_start).count();
+        const bool success = (ret == 1);
+
+        if (success)
+        {
+            if (!Valid_Coloring(solution_best.p))
+            {
+                cerr << "Internal error: run " << Current_Run
+                     << " returned an invalid coloring" << endl;
+                DeleteMemery(pop,&solution_best,&off_spring);
+                return 3;
+            }
+            ++succ;
+            successful_cpu_time += cpu_seconds;
+        }
+
+        run_output << Current_Run << ',' << Current_Seed << ','
+                   << (success ? 1 : 0) << ',' << fixed << setprecision(9)
+                   << cpu_seconds << ',' << wall_seconds << '\n';
+        run_output.flush();
+    }
+
+    const double total_wall_time = chrono::duration<double>(
+        chrono::steady_clock::now() - all_wall_start).count();
+    cout << "LPR_SUMMARY"
+         << " instance=" << File_Name
+         << " k=" << K
+         << " runs=" << times
+         << " successes=" << succ
+         << " base_seed=" << base_seed
+         << " successful_cpu_total=" << fixed << setprecision(9)
+         << successful_cpu_time
+         << " successful_cpu_average=";
+    if (succ > 0)
+        cout << successful_cpu_time / succ;
+    else
+        cout << "NA";
+    cout << " total_wall=" << total_wall_time
+         << " run_csv=" << Output_File_Name
+         << " solutions=" << Solution_File_Name << endl;
+
+    DeleteMemery(pop,&solution_best,&off_spring);
+    return 0;
 }
